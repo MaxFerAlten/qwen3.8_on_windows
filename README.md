@@ -1,6 +1,6 @@
 # Qwen3.8-Flash-Next on llama.cpp (Vulkan + CPU MoE, Windows)
 
-Run the **[Qwen3.8-Flash-Next](https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF)** 68.8B model on **Windows** with a **Vulkan** GPU (AMD / NVIDIA / Intel Arc) and the **Mixture-of-Experts on CPU**, using official precompiled **llama.cpp** binaries.
+Run the **[Qwen3.8-Flash-Next](https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF)** — a ~177B-parameter hybrid model (125B LLM + 51B n-gram embedding + 4B MTP, only **6B activated per token**) — on **Windows** with a **Vulkan** GPU (AMD / NVIDIA / Intel Arc) and the **Mixture-of-Experts on CPU**, using official precompiled **llama.cpp** binaries.
 
 No CUDA, no ROCm, no compilation, no Python.
 
@@ -14,9 +14,11 @@ The GGUF is split across **three memory zones** at inference time:
 
 | Component | Size ~ | Where | Mechanism |
 |---|---|---|---|
-| Per-layer tensors (attention, norms, router, shared expert, delta-net) | 5–8 GB | **VRAM** | `-ngl 999` (Vulkan) |
-| Mixture-of-Experts layers (the bulk of the model) | ~60–70 GB on disk | **RAM** | `--cpu-moe` + memory-mapped GGUF |
-| N-gram table `per_layer_token_embd` (PLE) | ~9 GB | **Disk → RAM on demand** | `-ot per_layer_token_embd.*=CPU` + mmap |
+| Embeddings, output head + the first dense per-block tensors | ~5–8 GB | **VRAM** | `-ngl 999` (Vulkan) |
+| MoE experts (512 per block × 48 blocks) + dense tensors that don't fit in VRAM | tens of GB | **RAM** | `--cpu-moe` + memory-mapped GGUF |
+| N-gram table `per_layer_token_embd` (PLE, 51B params) | the largest single component | **Disk → RAM on demand** | `-ot per_layer_token_embd.*=CPU` + mmap |
+
+**Model stats, verified from the GGUF metadata** (`qwen4exp`): 48 blocks, **512 experts** (10 routed + 1 shared active per token), native 262K context, ~177B total params with only ~6B activated.
 
 Key facts about the setup:
 
@@ -211,7 +213,7 @@ Taken from a running `UD-Q3_K_XL` session:
 | VRAM shared (from RAM) | ~1 GB |
 | VRAM total committed | ~8.8 GB |
 
-This validates the design: per-layer tensors live on the GPU, expert weights page in and out of RAM, and the PLE table stays largely on disk.
+This validates the design: as much as fits of the dense tensors lives on the GPU, the 512-expert MoE weights page in and out of RAM, and the PLE table stays largely on disk.
 
 ---
 
